@@ -63,4 +63,7 @@ interface ICLPool is ICLPoolDerivedState {
       uint32 secondsOutside,
       bool initialized
     );
+
+  function token0() external view returns (address);
+  function token1() external view returns (address);
 }

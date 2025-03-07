@@ -166,6 +166,7 @@ contract BalancerRouterTest is Test {
     asset1.mint(user, 1000 ether);
     asset2.mint(user, 1000 ether);
 
+    vm.warp(block.timestamp + 11);
     vm.stopPrank();
   }
 
@@ -277,7 +278,6 @@ contract BalancerRouterTest is Test {
       assets,
       plazaTokens,
       minAmountsOut,
-      "",
       Pool.TokenType.BOND,
       0.9 ether
     );
@@ -303,7 +303,7 @@ contract BalancerRouterTest is Test {
   }
 
 
-  function testFailJoinWithInsufficientAllowance() public {
+  function testCannotJoinWithInsufficientAllowance() public {
     vm.startPrank(user);
 
     IAsset[] memory assets = new IAsset[](2);
@@ -315,6 +315,7 @@ contract BalancerRouterTest is Test {
     maxAmountsIn[1] = 1 ether;
 
     // Don't approve tokens
+    vm.expectRevert();
     router.joinBalancerAndPredeposit(
       BALANCER_POOL_ID,
       address(predeposit),
@@ -326,7 +327,7 @@ contract BalancerRouterTest is Test {
     vm.stopPrank();
   }
 
-  function testFailJoinWithInsufficientBalance() public {
+  function testCannotJoinWithInsufficientBalance() public {
     vm.startPrank(user);
 
     IAsset[] memory assets = new IAsset[](2);
@@ -340,6 +341,7 @@ contract BalancerRouterTest is Test {
     asset1.approve(address(router), 1001 ether);
     asset2.approve(address(router), 1 ether);
 
+    vm.expectRevert();
     router.joinBalancerAndPredeposit(
       BALANCER_POOL_ID,
       address(predeposit),

@@ -27,9 +27,9 @@ contract BondOracleAdapterTest is Test {
 
     // Mock IERC20 decimals calls
     vm.mockCall(
-      bondToken,
+      liquidityToken,
       abi.encodeWithSelector(ERC20.decimals.selector),
-      abi.encode(uint8(18))
+      abi.encode(uint8(6))
     );
 
     // Mock IERC20 symbol calls for description
@@ -58,6 +58,12 @@ contract BondOracleAdapterTest is Test {
       abi.encode(uint24(100))
     );
 
+    vm.mockCall(
+      dexPool,
+      abi.encodeWithSelector(ICLPool.token0.selector),
+      abi.encode(bondToken)
+    );
+
     // Deploy and initialize BondOracleAdapter
     adapter = BondOracleAdapter(Utils.deploy(
       address(new BondOracleAdapter()),
@@ -74,10 +80,10 @@ contract BondOracleAdapterTest is Test {
   }
 
   function testLatestRoundData() public {
-    // Mock observe call on pool
+    // Mock observe call on pool. tickCumulatives taken for USDT/USDC on Aerodrome (Base mainnet)
     int56[] memory tickCumulatives = new int56[](2);
-    tickCumulatives[0] = 100000; // tick at t-30min
-    tickCumulatives[1] = 200000; // tick at t-0
+    tickCumulatives[0] = 115051670; // tick at t-30min
+    tickCumulatives[1] = 115057070; // tick at t-0
     uint160[] memory secondsPerLiquidityCumulativeX128s = new uint160[](2);
     
     vm.mockCall(
@@ -90,7 +96,7 @@ contract BondOracleAdapterTest is Test {
     (,int256 answer,,,) = adapter.latestRoundData();
 
     // Verify the returned values
-    assertEq(answer, 79665096027561846390902814542);
+    assertEq(answer, 999700); // 0.9997 USDT/USDC
     console.log(answer);
   }
 
@@ -104,6 +110,6 @@ contract BondOracleAdapterTest is Test {
   }
 
   function testDecimals() public view {
-    assertEq(adapter.decimals(), 18);
+    assertEq(adapter.decimals(), 6);
   }
 }

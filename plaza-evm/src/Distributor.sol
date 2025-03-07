@@ -48,8 +48,6 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
 
   /// @dev Event emitted when a user claims their shares
   event ClaimedShares(address user, uint256 period, uint256 shares);
-  /// @dev Event emitted when a new pool is registered
-  event PoolRegistered(address pool, address couponToken);
 
   /// @custom:oz-upgrades-unsafe-allow constructor
   constructor() {
@@ -75,7 +73,7 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
    * Calculates the number of shares based on the user's bond token balance and the shares per token.
    * Transfers the calculated shares to the user's address.
    */
-  function claim() external whenNotPaused nonReentrant {
+  function claim() external nonReentrant whenNotPaused {
     BondToken bondToken = Pool(pool).bondToken();
     address couponToken = Pool(pool).couponToken();
 

@@ -199,6 +199,8 @@ contract PoolFactory is Initializable, AccessControlUpgradeable, UUPSUpgradeable
       )
     );
 
+    BondToken(bondToken).setPool(pool);
+
     // Deploy Distributor contract
     Distributor distributor = Distributor(deployer.deployDistributor(
       distributorBeacon,
