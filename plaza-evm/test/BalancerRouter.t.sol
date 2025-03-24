@@ -75,6 +75,10 @@ contract MockBalancerVault {
       }
     }
   }
+
+  function getPool(bytes32) external view returns (address, uint8) {
+    return (address(balancerPoolToken), 0);
+  }
 }
 
 contract BalancerRouterTest is Test {
@@ -270,6 +274,8 @@ contract BalancerRouterTest is Test {
     uint256[] memory minAmountsOut = new uint256[](2);
     minAmountsOut[0] = 0.9 ether;
     minAmountsOut[1] = 0.9 ether;
+
+    bytes memory userData = abi.encode(uint256(0), 0, 0);
 
     // Exit Plaza and Balancer
     router.exitPlazaAndBalancer(

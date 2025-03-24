@@ -1,0 +1,274 @@
+diff a/plaza-evm/test/Auction.t.sol b/plaza-evm/test/Auction.t.sol	(rejected hunks)
+@@ -31,6 +31,10 @@ contract AuctionTest is Test {
+ 
+   address pool;
+ 
++  uint256 bondAmount = 10_000 ether;
++  uint256 sharesPerToken = 2500000;
++  uint256 reserveAmount = 500000000000 ether;
++
+   function setUp() public {
+     usdc = new Token("USDC", "USDC", false);
+     weth = new Token("WETH", "WETH", false);
+@@ -73,7 +77,7 @@ contract AuctionTest is Test {
+     PoolFactory.PoolParams memory params;
+     params.fee = 0;
+     params.reserveToken = reserve;
+-    params.sharesPerToken = 2500000;
++    params.sharesPerToken = sharesPerToken;
+     params.distributionPeriod = 90 days;
+     params.couponToken = coupon;
+     
+@@ -81,10 +85,10 @@ contract AuctionTest is Test {
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), governance);
+     poolFactory.grantRole(poolFactory.SECURITY_COUNCIL_ROLE(), securityCouncil);
+     
+-    Token(reserve).mint(governance, 500000000000000000000000000000);
+-    Token(reserve).approve(address(poolFactory), 500000000000000000000000000000);
++    Token(reserve).mint(governance, reserveAmount);
++    Token(reserve).approve(address(poolFactory), reserveAmount);
+     
+-    return poolFactory.createPool(params, 500000000000000000000000000000, 10000*10**18, 10000*10**18, "Bond ETH", "bondETH", "Leverage ETH", "levETH", false);
++    return poolFactory.createPool(params, reserveAmount, bondAmount, 10000*10**18, "Bond ETH", "bondETH", "Leverage ETH", "levETH", false);
+   }
+ 
+   function useMockPool(address poolAddress) public {
+@@ -198,19 +202,33 @@ contract AuctionTest is Test {
+   }
+ 
+   function testEndAuctionFailed() public {
++    auction = _startAndGetAuction();
++    uint256 lastPeriodSharesPerToken = Pool(pool).bondToken().getPreviousPoolAmounts()[0].sharesPerToken;
++    assertEq(lastPeriodSharesPerToken, sharesPerToken);
++
+     vm.warp(block.timestamp + 15 days);
+     vm.prank(pool);
+     auction.endAuction();
+ 
+     assertEq(uint256(auction.state()), uint256(Auction.State.FAILED_UNDERSOLD));
++
++    lastPeriodSharesPerToken = Pool(pool).bondToken().getPreviousPoolAmounts()[0].sharesPerToken;
++    assertEq(lastPeriodSharesPerToken, 0);
+   }
+ 
+   function testEndAuctionFailedPoolSale() public {
++    auction = _startAndGetAuction();
++    uint256 lastPeriodSharesPerToken = Pool(pool).bondToken().getPreviousPoolAmounts()[0].sharesPerToken;
++    assertEq(lastPeriodSharesPerToken, sharesPerToken);
++
++    uint256 usdcBidAmount = auction.totalBuyCouponAmount();
++    uint256 reserveBidAmount = reserveAmount * 96 / 100;
++    
+     // Place a bid that would require too much of the reserve
+     vm.startPrank(bidder);
+-    usdc.mint(bidder, 1000000000000 ether);
+-    usdc.approve(address(auction), 1000000000000 ether);
+-    auction.bid(480000000000 ether, 1000000000000); // 96% of pool's reserve
++    usdc.mint(bidder, usdcBidAmount);
++    usdc.approve(address(auction), usdcBidAmount);
++    auction.bid(reserveBidAmount, usdcBidAmount); // 96% of pool's reserve
+     vm.stopPrank();
+ 
+     // End the auction
+@@ -224,6 +242,9 @@ contract AuctionTest is Test {
+ 
+     // Check that auction failed due to too much of the reserve being sold
+     assertEq(uint256(auction.state()), uint256(Auction.State.FAILED_POOL_SALE_LIMIT));
++
++    lastPeriodSharesPerToken = Pool(pool).bondToken().getPreviousPoolAmounts()[0].sharesPerToken;
++    assertEq(lastPeriodSharesPerToken, 0);
+   }
+ 
+   function testEndAuctionStillOngoing() public {
+@@ -270,8 +291,9 @@ contract AuctionTest is Test {
+     auction.bid(100 ether, newBidderBid);
+     vm.stopPrank();
+ 
+-    // Check that the bidder received the partial refund
+-    assertEq(usdc.balanceOf(bidder), initialBidderBalance + newBidderBid);
++    // Check that the bidder does not receive the partial refund and updated pending refunds
++    assertEq(usdc.balanceOf(bidder), initialBidderBalance);
++    assertEq(auction.pendingRefunds(bidder), newBidderBid);
+   }
+ 
+   function testClaimBidAuctionNotEnded() public {
+@@ -287,12 +309,13 @@ contract AuctionTest is Test {
+   }
+ 
+   function testClaimBidAuctionFailed() public {
+-    vm.warp(block.timestamp + 15 days);
++    Auction _auction = _startAndGetAuction();
++    vm.warp(block.timestamp + 10 days);
+     vm.prank(pool);
+-    auction.endAuction();
++    _auction.endAuction();
+ 
+     vm.expectRevert(Auction.AuctionFailed.selector);
+-    auction.claimBid(0);
++    _auction.claimBid(0);
+   }
+ 
+   function testClaimBidNothingToClaim() public {
+@@ -332,10 +355,13 @@ contract AuctionTest is Test {
+   }
+ 
+   function testClaimRefundSuccess() public {
++    auction = _startAndGetAuction();
++
+     vm.startPrank(bidder);
+     usdc.mint(bidder, 1000 ether);
+     usdc.approve(address(auction), 1000 ether);
+-    uint256 bidIndex = auction.bid(100 ether, 1000000000);
++    uint256 bidAmount = auction.totalBuyCouponAmount() / 1000;
++    uint256 bidIndex = auction.bid(100 ether, bidAmount);
+     vm.stopPrank();
+ 
+     vm.warp(block.timestamp + 15 days);
+@@ -347,21 +373,24 @@ contract AuctionTest is Test {
+     vm.prank(bidder);
+     auction.claimRefund(bidIndex);
+ 
+-    assertEq(usdc.balanceOf(bidder), initialBalance + 1000000000);
++    assertEq(usdc.balanceOf(bidder), initialBalance + bidAmount);
+   }
+ 
+   function testClaimRefundSuccessManyBidders() public {
++    auction = _startAndGetAuction();
++    uint256 bidAmount = auction.totalBuyCouponAmount() / 1000;
++
+     vm.startPrank(bidder);
+     usdc.mint(bidder, 1000 ether);
+     usdc.approve(address(auction), 1000 ether);
+-    uint256 bidIndex = auction.bid(100 ether, 1000000000);
++    uint256 bidIndex = auction.bid(100 ether, bidAmount);
+     vm.stopPrank();
+ 
+     address bidder2 = address(0x55);
+     vm.startPrank(bidder2);
+     usdc.mint(bidder2, 1000 ether);
+     usdc.approve(address(auction), 1000 ether);
+-    uint256 bidIndex2 = auction.bid(100 ether, 1000000000);
++    uint256 bidIndex2 = auction.bid(100 ether, bidAmount);
+     vm.stopPrank();
+ 
+     vm.warp(block.timestamp + 15 days);
+@@ -371,12 +400,12 @@ contract AuctionTest is Test {
+     uint256 initialBalance = usdc.balanceOf(bidder);
+     vm.prank(bidder);
+     auction.claimRefund(bidIndex);
+-    assertEq(usdc.balanceOf(bidder), initialBalance + 1000000000);
++    assertEq(usdc.balanceOf(bidder), initialBalance + bidAmount);
+ 
+     uint256 initialBalanceBidder2 = usdc.balanceOf(bidder2);
+     vm.prank(bidder2);
+     auction.claimRefund(bidIndex2);
+-    assertEq(usdc.balanceOf(bidder2), initialBalanceBidder2 + 1000000000);
++    assertEq(usdc.balanceOf(bidder2), initialBalanceBidder2 + bidAmount);
+   }
+ 
+   function testClaimRefundAuctionNotFailed() public {
+@@ -391,16 +420,19 @@ contract AuctionTest is Test {
+     vm.prank(pool);
+     auction.endAuction();
+ 
+-    vm.expectRevert(Auction.AuctionFailed.selector);
++    vm.expectRevert(Auction.AuctionSucceededOrOngoing.selector);
+     vm.prank(bidder);
+     auction.claimRefund(bidIndex);
+   }
+ 
+   function testClaimRefundNothingToClaim() public {
++    auction = _startAndGetAuction();
++
+     vm.startPrank(bidder);
+     usdc.mint(bidder, 1000 ether);
+     usdc.approve(address(auction), 1000 ether);
+-    uint256 bidIndex = auction.bid(100 ether, 1000000000);
++    uint256 bidAmount = auction.totalBuyCouponAmount() / 1000;
++    uint256 bidIndex = auction.bid(100 ether, bidAmount);
+     vm.stopPrank();
+ 
+     vm.warp(block.timestamp + 15 days);
+@@ -413,10 +445,13 @@ contract AuctionTest is Test {
+   }
+ 
+   function testClaimRefundAlreadyClaimed() public {
++    auction = _startAndGetAuction();
++
+     vm.startPrank(bidder);
+     usdc.mint(bidder, 1000 ether);
+     usdc.approve(address(auction), 1000 ether);
+-    uint256 bidIndex = auction.bid(100 ether, 1000000000);
++    uint256 bidAmount = auction.totalBuyCouponAmount() / 1000;
++    uint256 bidIndex = auction.bid(100 ether, bidAmount);
+     vm.stopPrank();
+ 
+     vm.warp(block.timestamp + 15 days);
+@@ -581,11 +616,15 @@ contract AuctionTest is Test {
+     auction.bid(500, highSellAmount);
+     vm.stopPrank();
+ 
+-    // Check that the lowest bidder received the refund
++    // Check refunds behaviour
++    assertEq(auction.pendingRefunds(lowestBidder), lowestSellCouponAmount);
++    vm.prank(lowestBidder);
++    auction.claimRefund();
++    assertEq(auction.pendingRefunds(lowestBidder), 0);
+     assertEq(usdc.balanceOf(lowestBidder), lowestBidderCouponBalance + lowestSellCouponAmount);
+   }
+ 
+-  function testPartialRefundUpdatesTotalReserves() public { 
++  function testPartialRefundUpdatesTotalReserves() public {
+     vm.startPrank(bidder);
+     uint256 initialBidAmount = 1000000000000;
+     usdc.mint(bidder, initialBidAmount);
+@@ -611,24 +650,14 @@ contract AuctionTest is Test {
+ 
+   function testAuctionBidOverflow() public {
+     address user1 = address(1001);
+-    vm.startPrank(governance);
+-
+-    Pool(pool).setAuctionPeriod(10 days);
+-    vm.stopPrank();
+-
+-    vm.warp(95 days);
+-    Pool(pool).startAuction();
+-
+-    (uint256 currentPeriod,) = Pool(pool).bondToken().globalPool();
+-    address auctionAddress = Pool(pool).auctions(currentPeriod-1);
+-    Auction _auction = Auction(auctionAddress);
++    Auction _auction = _startAndGetAuction();
+ 
+     Token usdcToken = Token(Pool(pool).couponToken());
+ 
+     vm.startPrank(bidder);
+     uint256 initialBidAmount = 25000000000000000000;
+     usdcToken.mint(bidder, initialBidAmount);
+-    usdcToken.approve(auctionAddress, initialBidAmount);
++    usdcToken.approve(address(_auction), initialBidAmount);
+ 
+     uint256 target_amount = type(uint256).max / initialBidAmount;
+ 
+@@ -639,9 +668,21 @@ contract AuctionTest is Test {
+     vm.startPrank(user1);
+     uint256 newBidderBid = 25000000000000000000 * 2;
+     usdcToken.mint(user1, newBidderBid);
+-    usdcToken.approve(auctionAddress, newBidderBid);
++    usdcToken.approve(address(_auction), newBidderBid);
+ 
+     _auction.bid(1 ether, newBidderBid);
+     vm.stopPrank();
+   }
++
++  function _startAndGetAuction() internal returns (Auction) {
++    vm.startPrank(governance);
++    Pool(pool).setAuctionPeriod(10 days);
++    vm.stopPrank();
++
++    vm.warp(95 days);
++    Pool(pool).startAuction();
++
++    (uint256 currentPeriod,) = Pool(pool).bondToken().globalPool();
++    return Auction(Pool(pool).auctions(currentPeriod-1));
++  }
+ }

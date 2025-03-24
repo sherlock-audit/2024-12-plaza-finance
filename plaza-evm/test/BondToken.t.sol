@@ -94,7 +94,7 @@ contract BondTokenTest is Test {
 
     // check it reverts on reseting indexed user assets
     vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-    token.resetIndexedUserAssets(user);
+    token.resetIndexedUserAssets(user, true);
 
     // check it reverts on increasing period
     vm.startPrank(governance);
@@ -209,17 +209,19 @@ contract BondTokenTest is Test {
     token.mint(user, 1000);
     vm.stopPrank();
 
-    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares) = token.userAssets(user);
+    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares, uint256 lastIndexedPeriodShares) = token.userAssets(user);
     assertEq(lastUpdatedPeriod, 1);
     assertEq(indexedAmountShares, 0);
+    assertEq(lastIndexedPeriodShares, 0);
 
     vm.startPrank(user);
     token.transfer(user2, 100);
     vm.stopPrank();
 
-    (lastUpdatedPeriod, indexedAmountShares) = token.userAssets(user);
+    (lastUpdatedPeriod, indexedAmountShares, lastIndexedPeriodShares) = token.userAssets(user);
     assertEq(lastUpdatedPeriod, 1);
     assertEq(indexedAmountShares, 0);
+    assertEq(lastIndexedPeriodShares, 0);
   }
 
   /**

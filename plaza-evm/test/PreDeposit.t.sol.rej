@@ -1,0 +1,104 @@
+diff a/plaza-evm/test/PreDeposit.t.sol b/plaza-evm/test/PreDeposit.t.sol	(rejected hunks)
+@@ -246,8 +246,8 @@ contract PreDepositTest is Test {
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days); // After deposit period
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+ 
+@@ -258,8 +258,8 @@ contract PreDepositTest is Test {
+ 
+   function testCreatePoolNoReserveAmount() public {
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days);
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     vm.expectRevert(PreDeposit.NoReserveAmount.selector);
+     preDeposit.createPool();
+@@ -289,7 +289,6 @@ contract PreDepositTest is Test {
+     resetReentrancy(address(preDeposit));
+ 
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     // Check that the deposit end time is still in the future
+     assertGt(preDeposit.depositEndTime(), block.timestamp, "Deposit period has ended");
+@@ -305,8 +304,8 @@ contract PreDepositTest is Test {
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days); // After deposit period
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+ 
+@@ -329,8 +328,8 @@ contract PreDepositTest is Test {
+ 
+     // Create pool
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days); // After deposit period
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     // fake bond/lev to predeposit contract, simulating a pool created
+     BondToken(bondToken).mint(address(preDeposit), 10000 ether);
+@@ -385,8 +384,8 @@ contract PreDepositTest is Test {
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days);
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+ 
+@@ -411,8 +410,8 @@ contract PreDepositTest is Test {
+ 
+     // Create pool
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days);
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     
+     // fake bond/lev to predeposit contract, simulating a pool created
+     BondToken(bondToken).mint(address(preDeposit), 10000 ether);
+@@ -523,9 +522,8 @@ contract PreDepositTest is Test {
+ 
+     // Create pool
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+-
+     vm.warp(block.timestamp + 8 days); // After deposit period
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+ 
+@@ -560,11 +558,10 @@ contract PreDepositTest is Test {
+ 
+     // Create pool
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+-
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+-
++    
+     vm.warp(block.timestamp + 7 days); // depositEndTime
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+ 
+     // Start timing attack
+     vm.startPrank(user1);
+@@ -603,8 +600,8 @@ contract PreDepositTest is Test {
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     vm.warp(block.timestamp + 8 days); // After deposit period
++    preDeposit.setBondAndLeverageAmount(BOND_AMOUNT, LEVERAGE_AMOUNT);
+     poolFactory.grantRole(poolFactory.POOL_ROLE(), address(preDeposit));
+ 
+     vm.recordLogs();

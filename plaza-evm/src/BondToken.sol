@@ -12,6 +12,7 @@ import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 
+
 /**
  * @title BondToken
  * @dev This contract implements a bond token with upgradeable capabilities, access control, and pausability.
@@ -35,7 +36,7 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
   /**
    * @dev Struct to represent the global asset pool, including the current period, shares per token, and previous pool amounts.
    * @param currentPeriod The current period of the global pool
-   * @param sharesPerToken The current number of shares per token (base 10000)
+   * @param sharesPerToken The current number of shares per token (base 1e6)
    * @param previousPoolAmounts An array of previous pool amounts
    */
   struct IndexedGlobalAssetPool {
@@ -214,9 +215,12 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * @notice This function resets the last updated period and indexed amount of shares to zero.
    * Can only be called by addresses with the DISTRIBUTOR_ROLE and when the contract is not paused.
    */
-  function resetIndexedUserAssets(address user) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused(){
+  function resetIndexedUserAssets(address user, bool resetLastIndexedPeriodShares) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused(){
     userAssets[user].lastUpdatedPeriod = globalPool.currentPeriod;
     userAssets[user].indexedAmountShares = 0;
+    if (resetLastIndexedPeriodShares) {
+      userAssets[user].lastIndexedPeriodShares = 0;
+    }
   }
 
   /**

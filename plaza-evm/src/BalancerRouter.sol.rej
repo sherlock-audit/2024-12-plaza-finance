@@ -1,0 +1,122 @@
+diff a/plaza-evm/src/BalancerRouter.sol b/plaza-evm/src/BalancerRouter.sol	(rejected hunks)
+@@ -8,35 +8,17 @@ import {IVault} from "@balancer/contracts/interfaces/contracts/vault/IVault.sol"
+ import {IAsset} from "@balancer/contracts/interfaces/contracts/vault/IAsset.sol";
+ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
++import {WeightedPoolUserData} from "@balancer/contracts/interfaces/contracts/pool-weighted/WeightedPoolUserData.sol";
+ 
+ contract BalancerRouter is ReentrancyGuard {
+     using SafeERC20 for IERC20;
+ 
+     IVault public immutable balancerVault;
+-    IERC20 public immutable balancerPoolToken;
+ 
+-    constructor(address _balancerVault, address _balancerPoolToken) {
+-        balancerVault = IVault(_balancerVault);
+-        balancerPoolToken = IERC20(_balancerPoolToken);
+-    }
+-
+-    function joinBalancerAndPredeposit(
+-        bytes32 balancerPoolId,
+-        address _predeposit,
+-        IAsset[] memory assets,
+-        uint256[] memory maxAmountsIn,
+-        bytes memory userData
+-    ) external nonReentrant returns (uint256) {
+-        // Step 1: Join Balancer Pool
+-        uint256 balancerPoolTokenReceived = joinBalancerPool(balancerPoolId, assets, maxAmountsIn, userData);
+-
+-        // Step 2: Approve balancerPoolToken for PreDeposit
+-        balancerPoolToken.safeIncreaseAllowance(_predeposit, balancerPoolTokenReceived);
++    event TokensRedeemed(address indexed plazaPool, address caller, address indexed onBehalfOf, Pool.TokenType tokenType, uint256 depositedAmount, uint256 redeemedAmount);
+ 
+-        // Step 3: Deposit to PreDeposit
+-        PreDeposit(_predeposit).deposit(balancerPoolTokenReceived, msg.sender);
+-
+-        return balancerPoolTokenReceived;
++    constructor(address _balancerVault) {
++        balancerVault = IVault(_balancerVault);
+     }
+ 
+     function joinBalancerAndPlaza(
+@@ -82,9 +65,19 @@ contract BalancerRouter is ReentrancyGuard {
+         });
+ 
+         // Join Balancer pool
+-        uint256 balancerPoolTokenBalanceBefore = balancerPoolToken.balanceOf(address(this));
++        (address balancerPoolToken,) = balancerVault.getPool(poolId);
++        uint256 balancerPoolTokenBalanceBefore = IERC20(balancerPoolToken).balanceOf(address(this));
+         balancerVault.joinPool(poolId, address(this), address(this), request);
+-        uint256 balancerPoolTokenBalanceAfter = balancerPoolToken.balanceOf(address(this));
++
++        // Send back any remaining assets to user
++        for (uint256 i = 1; i < assets.length; i++) { // index 0 is the balancer pool token in ManagedPools
++            uint256 assetBalance = IERC20(address(assets[i])).balanceOf(address(this));
++            if (assetBalance > 0) {
++                IERC20(address(assets[i])).safeTransfer(msg.sender, assetBalance);
++            }
++        }
++
++        uint256 balancerPoolTokenBalanceAfter = IERC20(balancerPoolToken).balanceOf(address(this));
+ 
+         return balancerPoolTokenBalanceAfter - balancerPoolTokenBalanceBefore;
+     }
+@@ -95,15 +88,27 @@ contract BalancerRouter is ReentrancyGuard {
+         IAsset[] memory assets,
+         uint256 plazaTokenAmount,
+         uint256[] memory minAmountsOut,
+-        bytes memory userData,
++        bytes calldata userData,
+         Pool.TokenType plazaTokenType,
+         uint256 minbalancerPoolTokenOut
+     ) external nonReentrant {
+         // Step 1: Exit Plaza Pool
+         uint256 balancerPoolTokenReceived = exitPlazaPool(plazaTokenType, _plazaPool, plazaTokenAmount, minbalancerPoolTokenOut);
+ 
++        // Decode userData to get format and bptAmountIn
++        (uint256 exitKind) = abi.decode(userData[:32], (uint256));
++        
++        bytes memory newUserData;
++        if (exitKind == 0) { // EXACT_BPT_IN_FOR_ONE_TOKEN_OUT
++            uint256 exitTokenIndex;
++            (,, exitTokenIndex) = abi.decode(userData, (uint256, uint256, uint256));
++            newUserData = abi.encode(uint256(0), balancerPoolTokenReceived, exitTokenIndex);
++        } else if (exitKind == 1) { // EXACT_BPT_IN_FOR_TOKENS_OUT
++            newUserData = abi.encode(uint256(1), balancerPoolTokenReceived);
++        }
++
+         // Step 2: Exit Balancer Pool
+-        exitBalancerPool(balancerPoolId, assets, balancerPoolTokenReceived, minAmountsOut, userData, msg.sender);
++        exitBalancerPool(balancerPoolId, assets, minAmountsOut, newUserData, msg.sender);
+     }
+     
+     function exitPlazaPool(
+@@ -119,13 +124,16 @@ contract BalancerRouter is ReentrancyGuard {
+         plazaToken.safeIncreaseAllowance(_plazaPool, tokenAmount);
+ 
+         // Exit Plaza pool
+-        return plazaPool.redeem(tokenType, tokenAmount, minbalancerPoolTokenOut);
++        uint256 reservesRedeemedAmount = plazaPool.redeem(tokenType, tokenAmount, minbalancerPoolTokenOut);
++
++        emit TokensRedeemed(_plazaPool, address(this), msg.sender, tokenType, tokenAmount, reservesRedeemedAmount);
++
++        return reservesRedeemedAmount;
+     }
+ 
+     function exitBalancerPool(
+         bytes32 poolId,
+         IAsset[] memory assets,
+-        uint256 balancerPoolTokenIn,
+         uint256[] memory minAmountsOut,
+         bytes memory userData,
+         address to
+@@ -137,7 +145,6 @@ contract BalancerRouter is ReentrancyGuard {
+             toInternalBalance: false
+         });
+ 
+-        balancerPoolToken.safeIncreaseAllowance(address(balancerVault), balancerPoolTokenIn);
+         balancerVault.exitPool(poolId, address(this), payable(to), request);
+     }
+-}
+\ No newline at end of file
++}

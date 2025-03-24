@@ -55,7 +55,8 @@ contract BalancerRouter is ReentrancyGuard {
         uint256 balancerPoolTokenReceived = joinBalancerPool(balancerPoolId, assets, maxAmountsIn, userData);
 
         // Step 2: Approve balancerPoolToken for Plaza Pool
-        balancerPoolToken.safeIncreaseAllowance(_plazaPool, balancerPoolTokenReceived);
+        (address balancerPoolToken,) = balancerVault.getPool(balancerPoolId);
+        IERC20(balancerPoolToken).safeIncreaseAllowance(_plazaPool, balancerPoolTokenReceived);
 
         // Step 3: Join Plaza Pool
         uint256 plazaTokens = Pool(_plazaPool).create(plazaTokenType, balancerPoolTokenReceived, minPlazaTokens, deadline, msg.sender);

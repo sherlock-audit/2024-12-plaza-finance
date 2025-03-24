@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
+import {Auction} from "./Auction.sol";
 import {Pool} from "./Pool.sol";
 import {BondToken} from "./BondToken.sol";
 import {Decimals} from "./lib/Decimals.sol";
@@ -83,8 +84,20 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
 
     (uint256 currentPeriod,) = bondToken.globalPool();
     uint256 balance = bondToken.balanceOf(msg.sender);
-    uint256 shares = bondToken.getIndexedUserAmount(msg.sender, balance, currentPeriod)
-                              .normalizeAmount(bondToken.decimals(), IERC20(couponToken).safeDecimals());
+    (uint256 shares, uint256 lastIndexedPeriodShares) = bondToken.getIndexedUserAmount(msg.sender, balance, currentPeriod);
+
+    shares = shares.normalizeAmount(bondToken.decimals(), IERC20(couponToken).safeDecimals());
+    lastIndexedPeriodShares = lastIndexedPeriodShares.normalizeAmount(bondToken.decimals(), IERC20(couponToken).safeDecimals());
+
+    bool isLastAuctionFinalized = !(Auction(pool.auctions(currentPeriod-1)).state() == Auction.State.BIDDING);
+
+    if (isLastAuctionFinalized) {
+      shares += lastIndexedPeriodShares; // lastIndexedPeriodShares is zero for failed auctions, so fine to add
+    }
+
+    if (shares == 0) {
+      revert NothingToClaim();
+    }
 
     if (IERC20(couponToken).balanceOf(address(this)) < shares) {
       revert NotEnoughSharesBalance();
@@ -101,7 +114,7 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
     }
 
     couponAmountToDistribute -= shares;    
-    bondToken.resetIndexedUserAssets(msg.sender);
+    bondToken.resetIndexedUserAssets(msg.sender, isLastAuctionFinalized);
     IERC20(couponToken).safeTransfer(msg.sender, shares);
     
     emit ClaimedShares(msg.sender, currentPeriod, shares);

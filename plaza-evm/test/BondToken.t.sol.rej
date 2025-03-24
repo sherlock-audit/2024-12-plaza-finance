@@ -1,0 +1,227 @@
+diff a/plaza-evm/test/BondToken.t.sol b/plaza-evm/test/BondToken.t.sol	(rejected hunks)
+@@ -18,6 +18,8 @@ contract BondTokenTest is Test {
+   address private user2 = address(0x5);
+   address private distributor = address(0x6);
+   address private securityCouncil = address(0x7);
++  address private mockPool = address(0x8);
++  address private mockAuction = address(0x9);
+   PoolFactory private poolFactory;
+   /**
+    * @dev Sets up the testing environment.
+@@ -56,6 +58,8 @@ contract BondTokenTest is Test {
+     token.grantRole(token.DISTRIBUTOR_ROLE(), distributor);
+     token.increaseIndexedAssetPeriod(20000);
+     vm.stopPrank();
++
++    _mockSuccessfulAuctionState(0);
+   }
+ 
+   function testPause() public {
+@@ -224,36 +230,39 @@ contract BondTokenTest is Test {
+    */
+   function testTransferAfterPeriodIncrease() public {
+     vm.startPrank(minter);
+-    token.mint(user, 1000);
++    token.mint(user, 1000000);
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    token.increaseIndexedAssetPeriod(200);
++    token.increaseIndexedAssetPeriod(2500000);
+     vm.stopPrank();
++    _mockSuccessfulAuctionState(1);
+ 
+-    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares) = token.userAssets(user);
++    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares, uint256 lastIndexedPeriodShares) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 1);
+     assertEq(indexedAmountShares, 0);
++    assertEq(lastIndexedPeriodShares, 0);
+ 
+     (lastUpdatedPeriod, indexedAmountShares) = token.globalPool();
+     assertEq(lastUpdatedPeriod, 2);
+-    assertEq(indexedAmountShares, 200);
++    assertEq(indexedAmountShares, 2500000);
+ 
+     vm.startPrank(user);
+-    token.transfer(user2, 100);
++    token.transfer(user2, 100000);
+     vm.stopPrank();
+ 
+     // User1
+-    (lastUpdatedPeriod, indexedAmountShares) = token.userAssets(user);
++    (lastUpdatedPeriod, indexedAmountShares, lastIndexedPeriodShares) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 2);
+-    assertEq(indexedAmountShares, 20);
+-    assertEq(token.balanceOf(user), 900);
++    assertEq(indexedAmountShares, 0);
++    assertEq(lastIndexedPeriodShares, 2500000);
++    assertEq(token.balanceOf(user), 900000);
+ 
+     // User2
+-    (lastUpdatedPeriod, indexedAmountShares) = token.userAssets(user2);
++    (lastUpdatedPeriod, indexedAmountShares, lastIndexedPeriodShares) = token.userAssets(user2);
+     assertEq(lastUpdatedPeriod, 2);
+     assertEq(indexedAmountShares, 0);
+-    assertEq(token.balanceOf(user2), 100);
++    assertEq(token.balanceOf(user2), 100000);
+   }
+ 
+   /**
+@@ -262,79 +271,135 @@ contract BondTokenTest is Test {
+    */
+   function testTransferAfterPeriodIncreaseBothUsersPaid() public {
+     vm.startPrank(minter);
+-    token.mint(user, 1000);
+-    token.mint(user2, 2000);
++    token.mint(user, 1000000);
++    token.mint(user2, 2000000);
+     vm.stopPrank();
+ 
+     vm.startPrank(governance);
+-    token.increaseIndexedAssetPeriod(200);
++    token.increaseIndexedAssetPeriod(2500000);
+     vm.stopPrank();
++    _mockSuccessfulAuctionState(1);
+ 
+-    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares) = token.userAssets(user);
++    (uint256 lastUpdatedPeriod, uint256 indexedAmountShares, uint256 lastIndexedPeriodShares) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 1);
+     assertEq(indexedAmountShares, 0);
++    assertEq(lastIndexedPeriodShares, 0);
+ 
+     (lastUpdatedPeriod, indexedAmountShares) = token.globalPool();
+     assertEq(lastUpdatedPeriod, 2);
+-    assertEq(indexedAmountShares, 200);
++    assertEq(indexedAmountShares, 2500000);
+ 
+     vm.startPrank(user);
+-    token.transfer(user2, 100);
++    token.transfer(user2, 100000);
+     vm.stopPrank();
+ 
+     // User1
+-    (lastUpdatedPeriod, indexedAmountShares) = token.userAssets(user);
++    (lastUpdatedPeriod, indexedAmountShares, lastIndexedPeriodShares) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 2);
+-    assertEq(indexedAmountShares, 20);
+-    assertEq(token.balanceOf(user), 900);
++    assertEq(indexedAmountShares, 0);
++    assertEq(lastIndexedPeriodShares, 2500000);
++    assertEq(token.balanceOf(user), 900000);
+ 
+     // User2
+-    (lastUpdatedPeriod, indexedAmountShares) = token.userAssets(user2);
++    (lastUpdatedPeriod, indexedAmountShares, lastIndexedPeriodShares) = token.userAssets(user2);
+     assertEq(lastUpdatedPeriod, 2);
+-    assertEq(indexedAmountShares, 40);
+-    assertEq(token.balanceOf(user2), 2100);
++    assertEq(indexedAmountShares, 0);
++    assertEq(lastIndexedPeriodShares, 5000000);
++    assertEq(token.balanceOf(user2), 2100000);
+   }
+ 
+   function testResetIndexedUserAssetsUnauthorized() public {
+     vm.expectRevert();
+-    token.resetIndexedUserAssets(user);
++    token.resetIndexedUserAssets(user, true);
+   }
+ 
+   function testResetIndexedUserAssetsPeriodReset() public {
+     vm.startPrank(governance);
+     token.increaseIndexedAssetPeriod(200);
++    _mockSuccessfulAuctionState(1);
+     vm.stopPrank();
+ 
+     vm.startPrank(distributor);
+-    token.resetIndexedUserAssets(user);
++    token.resetIndexedUserAssets(user, true);
+     vm.stopPrank();
+ 
+-    (uint256 lastUpdatedPeriod,) = token.userAssets(user);
++    (uint256 lastUpdatedPeriod,,) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 2);
+   }
+ 
+   function testResetIndexedUserAssetsSharesReset() public {
+     // Issue bond
+     vm.startPrank(minter);
+-    token.mint(user, 100);
++    token.mint(user, 1000000);
+ 
+     // Update period
+     vm.startPrank(governance);
+-    token.increaseIndexedAssetPeriod(200);
++    token.increaseIndexedAssetPeriod(2500000);
++    vm.stopPrank();
++
++    _mockSuccessfulAuctionState(1);
+ 
+     // Transfer to another user to update the intermediate balance
+     vm.startPrank(user);
+-    token.transfer(user2, 100);
++    token.transfer(user2, 1000000);
+ 
+-    (uint256 lastUpdatedPeriod, uint256 shares) = token.userAssets(user);
+-    assertEq(shares, 2);
++    (uint256 lastUpdatedPeriod, uint256 shares, uint256 lastIndexedPeriodShares) = token.userAssets(user);
++    assertEq(shares, 0);
++    assertEq(lastIndexedPeriodShares, 2500000);
+ 
+     // Execute reset
+     vm.startPrank(distributor);
+-    token.resetIndexedUserAssets(user);
++    token.resetIndexedUserAssets(user, true);
+ 
+-    (lastUpdatedPeriod, shares) = token.userAssets(user);
++    (lastUpdatedPeriod, shares, lastIndexedPeriodShares) = token.userAssets(user);
+     assertEq(lastUpdatedPeriod, 2);
+     assertEq(shares, 0);
++    assertEq(lastIndexedPeriodShares, 0);
++  }
++
++  function testSharesNotCountedDuringBiddingAuctions() public {
++    // Issue bond
++    vm.prank(minter);
++    token.mint(user, 1 ether);
++
++    // Update period
++    vm.startPrank(governance);
++    token.increaseIndexedAssetPeriod(2_500_000);
++    vm.stopPrank();
++
++    vm.mockCall(
++      mockPool,
++      abi.encodeWithSignature("auctions(uint256)", 1),
++      abi.encode(mockAuction)
++    );
++
++    vm.mockCall(
++      mockAuction,
++      abi.encodeWithSignature("state()"),
++      abi.encode(Auction.State.BIDDING)
++    );
++
++    (uint256 shares, uint256 lastIndexedPeriodShares) = token.getIndexedUserAmount(user, 1 ether, 1);
++    assertEq(shares, 0);
++    assertEq(lastIndexedPeriodShares, 0);
++  }
++
++  function _mockSuccessfulAuctionState(uint256 period) internal {
++    vm.startPrank(address(poolFactory));
++    
++    token.setPool(mockPool);
++    vm.mockCall(
++      mockPool,
++      abi.encodeWithSignature("auctions(uint256)", period),
++      abi.encode(mockAuction)
++    );
++
++    vm.mockCall(
++      mockAuction,
++      abi.encodeWithSignature("state()"),
++      abi.encode(Auction.State.SUCCEEDED)
++    );
++
++    vm.stopPrank();
+   }
+ }
