@@ -75,6 +75,10 @@ contract MockBalancerVault {
       }
     }
   }
+
+  function getPool(bytes32) external view returns (address, uint8) {
+    return (address(balancerPoolToken), 0);
+  }
 }
 
 contract BalancerRouterTest is Test {
@@ -160,41 +164,13 @@ contract BalancerRouterTest is Test {
       PreDeposit.initialize, 
       (params, address(poolFactory), block.timestamp, block.timestamp + 1 hours, 100000 ether, "Bond ETH", "bondETH", "Leveraged ETH", "levETH")
     )));
-    router = new BalancerRouter(address(vault), address(balancerPoolToken));
+    router = new BalancerRouter(address(vault));
 
     // Setup initial token balances
     asset1.mint(user, 1000 ether);
     asset2.mint(user, 1000 ether);
 
-    vm.stopPrank();
-  }
-
-  function testJoinBalancerAndPredeposit() public {
-    vm.startPrank(user);
-
-    IAsset[] memory assets = new IAsset[](2);
-    assets[0] = IAsset(address(asset1));
-    assets[1] = IAsset(address(asset2));
-
-    uint256[] memory maxAmountsIn = new uint256[](2);
-    maxAmountsIn[0] = 1 ether;
-    maxAmountsIn[1] = 1 ether;
-
-    asset1.approve(address(router), 1 ether);
-    asset2.approve(address(router), 1 ether);
-
-    uint256 balancerPoolTokenReceived = router.joinBalancerAndPredeposit(
-      BALANCER_POOL_ID,
-      address(predeposit),
-      assets,
-      maxAmountsIn,
-      ""
-    );
-
-    assertEq(balancerPoolTokenReceived, 1 ether, "Incorrect balancerPoolToken amount received");
-    assertEq(asset1.balanceOf(user), 999 ether, "Incorrect asset1 balance");
-    assertEq(asset2.balanceOf(user), 999 ether, "Incorrect asset2 balance");
-
+    vm.warp(block.timestamp + 11);
     vm.stopPrank();
   }
 
@@ -270,6 +246,8 @@ contract BalancerRouterTest is Test {
     minAmountsOut[0] = 0.9 ether;
     minAmountsOut[1] = 0.9 ether;
 
+    bytes memory userData = abi.encode(uint256(0), 0, 0);
+
     // Exit Plaza and Balancer
     router.exitPlazaAndBalancer(
       BALANCER_POOL_ID,
@@ -277,7 +255,7 @@ contract BalancerRouterTest is Test {
       assets,
       plazaTokens,
       minAmountsOut,
-      "",
+      userData,
       Pool.TokenType.BOND,
       0.9 ether
     );
@@ -297,55 +275,6 @@ contract BalancerRouterTest is Test {
       _pool.bondToken().balanceOf(user), 
       bondTokenBalanceBefore - plazaTokens, 
       "Incorrect bond token balance after exit"
-    );
-
-    vm.stopPrank();
-  }
-
-
-  function testFailJoinWithInsufficientAllowance() public {
-    vm.startPrank(user);
-
-    IAsset[] memory assets = new IAsset[](2);
-    assets[0] = IAsset(address(asset1));
-    assets[1] = IAsset(address(asset2));
-
-    uint256[] memory maxAmountsIn = new uint256[](2);
-    maxAmountsIn[0] = 1 ether;
-    maxAmountsIn[1] = 1 ether;
-
-    // Don't approve tokens
-    router.joinBalancerAndPredeposit(
-      BALANCER_POOL_ID,
-      address(predeposit),
-      assets,
-      maxAmountsIn,
-      ""
-    );
-
-    vm.stopPrank();
-  }
-
-  function testFailJoinWithInsufficientBalance() public {
-    vm.startPrank(user);
-
-    IAsset[] memory assets = new IAsset[](2);
-    assets[0] = IAsset(address(asset1));
-    assets[1] = IAsset(address(asset2));
-
-    uint256[] memory maxAmountsIn = new uint256[](2);
-    maxAmountsIn[0] = 1001 ether; // More than user's balance
-    maxAmountsIn[1] = 1 ether;
-
-    asset1.approve(address(router), 1001 ether);
-    asset2.approve(address(router), 1 ether);
-
-    router.joinBalancerAndPredeposit(
-      BALANCER_POOL_ID,
-      address(predeposit),
-      assets,
-      maxAmountsIn,
-      ""
     );
 
     vm.stopPrank();

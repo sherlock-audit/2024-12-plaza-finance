@@ -31,12 +31,13 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   // Constants
   uint256 private constant POINT_EIGHT = 800000; // 1000000 precision | 800000=0.8
   uint256 private constant POINT_TWO = 200000;
-  uint256 private constant COLLATERAL_THRESHOLD = 1200000;
+  uint256 private constant COLLATERAL_THRESHOLD = 1250000;
   uint256 private constant PRECISION = 1000000;
   uint256 private constant BOND_TARGET_PRICE = 100;
   uint8 private constant COMMON_DECIMALS = 18;
   uint256 private constant SECONDS_PER_YEAR = 365 days;
   uint256 private constant MIN_POOL_SALE_LIMIT = 90; // 90%
+  uint256 private constant AUCTION_START_BUFFER = 5 seconds;
 
   // Protocol
   PoolFactory public poolFactory;
@@ -44,6 +45,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   address public feeBeneficiary;
   uint256 private lastFeeClaimTime;
   uint256 private poolSaleLimit;
+  uint256 public lastAuctionStart;
 
   // Tokens
   address public reserveToken;
@@ -89,7 +91,6 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   error ZeroAmount();
   error FeeTooHigh();
   error AccessDenied();
-  error NoFeesToClaim();
   error NotBeneficiary();
   error ZeroDebtSupply();
   error AuctionIsOngoing();
@@ -97,13 +98,12 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   error CallerIsNotAuction();
   error DistributionPeriod();
   error AuctionPeriodPassed();
-  error AuctionNotSucceeded();
   error AuctionAlreadyStarted();
+  error AuctionRecentlyStarted();
   error PoolSaleLimitTooLow();
   error DistributionPeriodNotPassed();
 
   // Events
-  event Distributed(uint256 period, uint256 amount);
   event SharesPerTokenChanged(uint256 sharesPerToken);
   event Distributed(uint256 period, uint256 amount, address distributor);
   event AuctionPeriodChanged(uint256 oldPeriod, uint256 newPeriod);
@@ -112,6 +112,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   event TokensCreated(address caller, address onBehalfOf, TokenType tokenType, uint256 depositedAmount, uint256 mintedAmount);
   event TokensRedeemed(address caller, address onBehalfOf, TokenType tokenType, uint256 depositedAmount, uint256 redeemedAmount);
   event FeeClaimed(address beneficiary, uint256 amount);
+  event NoFeesToClaim();
   event FeeChanged(uint256 oldFee, uint256 newFee);
   event PoolSaleLimitChanged(uint256 oldThreshold, uint256 newThreshold);
   
@@ -189,7 +190,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
    * @param minAmount The minimum amount of new tokens to receive.
    * @return amount of new tokens created.
    */
-  function create(TokenType tokenType, uint256 depositAmount, uint256 minAmount) external whenNotPaused() nonReentrant() returns(uint256) {
+  function create(TokenType tokenType, uint256 depositAmount, uint256 minAmount) external nonReentrant() whenNotPaused() passedRecentAuctionStart() returns(uint256) {
     return _create(tokenType, depositAmount, minAmount, address(0));
   }
 
@@ -207,7 +208,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     uint256 depositAmount,
     uint256 minAmount,
     uint256 deadline,
-    address onBehalfOf) external whenNotPaused() nonReentrant() checkDeadline(deadline) returns(uint256) {
+    address onBehalfOf) external nonReentrant() whenNotPaused() passedRecentAuctionStart() checkDeadline(deadline) returns(uint256) {
     return _create(tokenType, depositAmount, minAmount, onBehalfOf);
   }
   
@@ -223,7 +224,9 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     TokenType tokenType,
     uint256 depositAmount,
     uint256 minAmount,
-    address onBehalfOf) private returns(uint256) {
+    address onBehalfOf
+  ) private returns(uint256) {
+    _claimFees();
     // Get amount to mint
     uint256 amount = simulateCreate(tokenType, depositAmount);
     
@@ -269,7 +272,6 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     uint256 poolReserves = IERC20(reserveToken).balanceOf(address(this))
                           .normalizeTokenAmount(reserveToken, COMMON_DECIMALS);
 
-    // Calculate and subtract fees from poolReserves
     poolReserves = poolReserves - (poolReserves * fee * (block.timestamp - lastFeeClaimTime)) / (PRECISION * SECONDS_PER_YEAR);
 
     depositAmount = depositAmount.normalizeTokenAmount(reserveToken, COMMON_DECIMALS);
@@ -350,7 +352,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
    * @param minAmount The minimum amount of reserve tokens to receive.
    * @return amount of reserve tokens received.
    */
-  function redeem(TokenType tokenType, uint256 depositAmount, uint256 minAmount) public whenNotPaused() nonReentrant() returns(uint256) {
+  function redeem(TokenType tokenType, uint256 depositAmount, uint256 minAmount) public nonReentrant() whenNotPaused() passedRecentAuctionStart() returns(uint256) {
     return _redeem(tokenType, depositAmount, minAmount, address(0));
   }
 
@@ -368,7 +370,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     uint256 depositAmount,
     uint256 minAmount,
     uint256 deadline,
-    address onBehalfOf) external whenNotPaused() nonReentrant() checkDeadline(deadline) returns(uint256) {
+    address onBehalfOf) external nonReentrant() whenNotPaused() passedRecentAuctionStart() checkDeadline(deadline) returns(uint256) {
     return _redeem(tokenType, depositAmount, minAmount, onBehalfOf);
   }
 
@@ -384,7 +386,9 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     TokenType tokenType,
     uint256 depositAmount,
     uint256 minAmount,
-    address onBehalfOf) private returns(uint256) {
+    address onBehalfOf) private returns(uint256)
+  {
+    _claimFees();
     // Get amount to mint
     uint256 reserveAmount = simulateRedeem(tokenType, depositAmount);
 
@@ -432,21 +436,20 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     // Calculate and subtract fees from poolReserves
     poolReserves = poolReserves - (poolReserves * fee * (block.timestamp - lastFeeClaimTime)) / (PRECISION * SECONDS_PER_YEAR);
 
-    if (tokenType == TokenType.LEVERAGE) {
-      depositAmount = depositAmount.normalizeTokenAmount(address(lToken), COMMON_DECIMALS);
-    } else {
-      depositAmount = depositAmount.normalizeTokenAmount(address(bondToken), COMMON_DECIMALS);
-    }
+    address derivTokenToRedeem = tokenType == TokenType.LEVERAGE ? address(lToken) : address(bondToken);
+    depositAmount = depositAmount.normalizeTokenAmount(derivTokenToRedeem, COMMON_DECIMALS);
 
     uint8 oracleDecimals = getOracleDecimals(reserveToken, USD);
+    uint8 sharesDecimals = bondToken.SHARES_DECIMALS();
 
     uint256 marketRate;
-    address feed = OracleFeeds(oracleFeeds).priceFeeds(address(bondToken), USD);
+    address feed = OracleFeeds(oracleFeeds).priceFeeds(derivTokenToRedeem, USD);
+
     if (feed != address(0)) {
-      marketRate = getOraclePrice(address(bondToken), USD)
+      marketRate = getOraclePrice(derivTokenToRedeem, USD)
         .normalizeAmount(
-          getOracleDecimals(address(bondToken), USD), 
-          oracleDecimals // this is the decimals of the reserve token chainlink feed
+          getOracleDecimals(derivTokenToRedeem, USD),
+          sharesDecimals // this is the decimals of the reserve token chainlink feed
         );
     }
 
@@ -493,17 +496,12 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     uint256 multiplier = POINT_EIGHT;
 
     // Calculate the collateral level based on the token type
-    uint256 collateralLevel;
-    if (tokenType == TokenType.BOND) {
-      collateralLevel = ((tvl - (depositAmount * BOND_TARGET_PRICE)) * PRECISION) / ((bondSupply - depositAmount) * BOND_TARGET_PRICE);
-    } else {
+    uint256 collateralLevel = (tvl * PRECISION) / (bondSupply * BOND_TARGET_PRICE);
+    if (tokenType == TokenType.LEVERAGE){
       multiplier = POINT_TWO;
       assetSupply = levSupply;
-      collateralLevel = (tvl * PRECISION) / (bondSupply * BOND_TARGET_PRICE);
 
-      if (assetSupply == 0) {
-        revert ZeroLeverageSupply();
-      }
+      if (assetSupply == 0) revert ZeroLeverageSupply();
     }
     
     // Calculate the redeem rate based on the collateral level and token type
@@ -511,7 +509,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     if (collateralLevel <= COLLATERAL_THRESHOLD) {
       redeemRate = ((tvl * multiplier) / assetSupply);
     } else if (tokenType == TokenType.LEVERAGE) {
-      redeemRate = ((tvl - (bondSupply * BOND_TARGET_PRICE)) / assetSupply) * PRECISION;
+      redeemRate = ((tvl - (bondSupply * BOND_TARGET_PRICE)) * PRECISION / assetSupply);
     } else {
       redeemRate = BOND_TARGET_PRICE * PRECISION;
     }
@@ -549,6 +547,10 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     uint256 couponAmountToDistribute = (normalizedTotalSupply * normalizedShares)
         .toBaseUnit(maxDecimals * 2 - IERC20(couponToken).safeDecimals());
 
+    // Round UP the coupon amount relative to slot size
+    uint256 maxBids = 1000;
+    couponAmountToDistribute = ((couponAmountToDistribute + maxBids - 1) / maxBids) * maxBids;
+
     auctions[currentPeriod] = Utils.deploy(
       address(new Auction()),
       abi.encodeWithSelector(
@@ -557,7 +559,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
         address(reserveToken),
         couponAmountToDistribute,
         block.timestamp + auctionPeriod,
-        1000,
+        maxBids,
         address(this),
         poolSaleLimit
       )
@@ -567,7 +569,8 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
     bondToken.increaseIndexedAssetPeriod(sharesPerToken);
 
     // Update last distribution time
-    lastDistribution = block.timestamp;
+    lastDistribution += distributionPeriod;
+    lastAuctionStart = block.timestamp;
   }
 
   /**
@@ -575,11 +578,18 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
    * @param amount The amount of reserve tokens to transfer.
    */
   function transferReserveToAuction(uint256 amount) external virtual {
-    (uint256 currentPeriod, ) = bondToken.globalPool();
-    address auctionAddress = auctions[currentPeriod];
-    require(msg.sender == auctionAddress, CallerIsNotAuction());
-    
+    require(msg.sender == lastAuction(), CallerIsNotAuction());
+
     IERC20(reserveToken).safeTransfer(msg.sender, amount);
+  }
+
+  /**
+   * @dev Sets the shares per token for the last period to 0. Only called when an auction fails.
+   */
+  function zeroLastSharesPerToken() external {
+    require(msg.sender == lastAuction(), CallerIsNotAuction());
+
+    bondToken.zeroLastSharesPerToken();
   }
   
   /**
@@ -698,17 +708,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
    * @dev Allows the fee beneficiary to claim the accumulated protocol fees.
    */
   function claimFees() public nonReentrant {
-    require(msg.sender == feeBeneficiary || poolFactory.hasRole(poolFactory.GOV_ROLE(), msg.sender), NotBeneficiary());
-    uint256 feeAmount = getFeeAmount();
-    
-    if (feeAmount == 0) {
-      revert NoFeesToClaim();
-    }
-    
-    lastFeeClaimTime = block.timestamp;
-    IERC20(reserveToken).safeTransfer(feeBeneficiary, feeAmount);
-    
-    emit FeeClaimed(feeBeneficiary, feeAmount);
+    _claimFees();
   }
 
   /**
@@ -717,6 +717,25 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
    */
   function getFeeAmount() internal view returns (uint256) {
     return (IERC20(reserveToken).balanceOf(address(this)) * fee * (block.timestamp - lastFeeClaimTime)) / (PRECISION * SECONDS_PER_YEAR);
+  }
+
+  function _claimFees() internal {
+    uint256 feeAmount = getFeeAmount();
+    
+    if (feeAmount == 0) {
+      emit NoFeesToClaim();
+      return;
+    }
+    
+    lastFeeClaimTime = block.timestamp;
+    IERC20(reserveToken).safeTransfer(feeBeneficiary, feeAmount);
+    
+    emit FeeClaimed(feeBeneficiary, feeAmount);
+  }
+
+  function lastAuction() internal view returns (address) {
+    (uint256 currentPeriod,) = bondToken.globalPool();
+    return auctions[currentPeriod-1];
   }
 
   /**
@@ -750,6 +769,13 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   modifier NotInAuction() {
     (uint256 currentPeriod,) = bondToken.globalPool();
     require(auctions[currentPeriod] == address(0), AuctionIsOngoing());
+    _;
+  }
+
+  modifier passedRecentAuctionStart() {
+    if (lastAuctionStart + AUCTION_START_BUFFER > block.timestamp) {
+      revert AuctionRecentlyStarted();
+    }
     _;
   }
 }

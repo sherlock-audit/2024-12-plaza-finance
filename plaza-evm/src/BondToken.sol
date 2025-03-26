@@ -3,12 +3,15 @@ pragma solidity ^0.8.26;
 
 import {Decimals} from "./lib/Decimals.sol";
 import {PoolFactory} from "./PoolFactory.sol";
+import {Pool} from "./Pool.sol";
+import {Auction} from "./Auction.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+
 
 /**
  * @title BondToken
@@ -33,7 +36,7 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
   /**
    * @dev Struct to represent the global asset pool, including the current period, shares per token, and previous pool amounts.
    * @param currentPeriod The current period of the global pool
-   * @param sharesPerToken The current number of shares per token (base 10000)
+   * @param sharesPerToken The current number of shares per token (base 1e6)
    * @param previousPoolAmounts An array of previous pool amounts
    */
   struct IndexedGlobalAssetPool {
@@ -44,18 +47,21 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
 
   /**
    * @dev Struct to represent a user's indexed assets, which are the user's shares
-   * @param lastUpdatedPeriod The last period when the user's assets were updated
-   * @param indexedAmountShares The user's indexed amount of shares
+   * @param lastUpdatedPeriod The last GLOBAL period when the user's assets were updated, NOT the user's last period accounted for
+   * @param indexedAmountShares The user's indexed amount of shares, which does not include the last indexed period's shares
+   * @param lastIndexedPeriodShares The user's shares from the last indexed period. See getIndexedUserAmount for why this is kept separate.
    */
   struct IndexedUserAssets {
     uint256 lastUpdatedPeriod;
     uint256 indexedAmountShares;
+    uint256 lastIndexedPeriodShares;
   }
 
   /// @dev The global asset pool
   IndexedGlobalAssetPool public globalPool;
   /// @dev Pool factory address
   PoolFactory public poolFactory;
+  Pool public pool;
 
   /// @dev Mapping of user addresses to their indexed assets
   mapping(address => IndexedUserAssets) public userAssets;
@@ -72,6 +78,8 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
 
   /// @dev Error thrown when the caller is not the security council
   error CallerIsNotSecurityCouncil();
+  /// @dev Error thrown when the caller is not the pool factory
+  error CallerIsNotPoolFactory();
 
   /// @dev Emitted when the asset period is increased
   event IncreasedAssetPeriod(uint256 currentPeriod, uint256 sharesPerToken);
@@ -170,32 +178,54 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * @notice This function updates the number of shares held by the user based on the current period.
    */
   function updateIndexedUserAssets(address user, uint256 balance) internal {
-    uint256 period = globalPool.currentPeriod;
-    uint256 shares = getIndexedUserAmount(user, balance, period);
+    uint256 currentPeriod = globalPool.currentPeriod;
+    (uint256 shares, uint256 lastIndexedPeriodShares) = getIndexedUserAmount(user, balance, currentPeriod);
     
     userAssets[user].indexedAmountShares = shares;
-    userAssets[user].lastUpdatedPeriod = period;
+    userAssets[user].lastUpdatedPeriod = currentPeriod;
+    userAssets[user].lastIndexedPeriodShares = lastIndexedPeriodShares;
 
-    emit UpdatedUserAssets(user, period, shares);
+    emit UpdatedUserAssets(user, currentPeriod, shares);
   }
 
   /**
    * @dev Returns the indexed amount of shares for a specific user.
    * @param user The address of the user
    * @param balance The current balance of the user
-   * @param period The period to calculate the shares for
    * @return The indexed amount of shares for the user
    * @notice This function calculates the number of shares based on the current period and the previous pool amounts.
+   *         We separate the last indexed period shares from the total shares to account for ongoing auctions. Contracts
+   *         calling this function should be aware that shares should not be paid out for bidding auctions. We currently handle
+   *         this in the Distributor by checking if the last auction is still active.
    */
-  function getIndexedUserAmount(address user, uint256 balance, uint256 period) public view returns(uint256) {
-    IndexedUserAssets memory userPool = userAssets[user];
-    uint256 shares = userPool.indexedAmountShares;
+  function getIndexedUserAmount(address user, uint256 balance, uint256 currentPeriod) public view returns(uint256, uint256) {
+    if (currentPeriod == 0) {return (0, 0);}
 
-    for (uint256 i = userPool.lastUpdatedPeriod; i < period; i++) {
+    IndexedUserAssets memory userPool = userAssets[user];
+    uint256 lastUpdatedPeriod = userPool.lastUpdatedPeriod;
+    uint256 shares = userPool.indexedAmountShares;
+    uint256 lastIndexedPeriodShares = userPool.lastIndexedPeriodShares;
+
+    // No indexing if the last updated period is the current period
+    if (lastUpdatedPeriod == currentPeriod) {return (shares, lastIndexedPeriodShares);}
+
+    // loop through all previous periods except the last one being accounted for
+    for (uint256 i = lastUpdatedPeriod; i < currentPeriod-1; i++) {
       shares += (balance * globalPool.previousPoolAmounts[i].sharesPerToken).toBaseUnit(SHARES_DECIMALS);
     }
 
-    return shares;
+    // We need to backtrack to when the last time lastIndexedPeriodShares was recorded, and
+    // confirm that the corresponding auction was successful in order to add the amount to the
+    // 'normal' shares counter. This amount is not accounted for in the loop above.
+    if (lastUpdatedPeriod > 0 &&
+      lastUpdatedPeriod < currentPeriod &&
+      Auction(pool.auctions(lastUpdatedPeriod-1)).state() == Auction.State.SUCCEEDED) {
+      shares += lastIndexedPeriodShares; // No decimal conversion here
+    }
+
+    lastIndexedPeriodShares = (balance * globalPool.previousPoolAmounts[currentPeriod-1].sharesPerToken).toBaseUnit(SHARES_DECIMALS);
+
+    return (shares, lastIndexedPeriodShares);
   }
 
   /**
@@ -204,9 +234,12 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * @notice This function resets the last updated period and indexed amount of shares to zero.
    * Can only be called by addresses with the DISTRIBUTOR_ROLE and when the contract is not paused.
    */
-  function resetIndexedUserAssets(address user) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused(){
+  function resetIndexedUserAssets(address user, bool resetLastIndexedPeriodShares) external onlyRole(DISTRIBUTOR_ROLE) whenNotPaused(){
     userAssets[user].lastUpdatedPeriod = globalPool.currentPeriod;
     userAssets[user].indexedAmountShares = 0;
+    if (resetLastIndexedPeriodShares) {
+      userAssets[user].lastIndexedPeriodShares = 0;
+    }
   }
 
   /**
@@ -219,13 +252,30 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
       PoolAmount({
         period: globalPool.currentPeriod,
         amount: totalSupply(),
-        sharesPerToken: globalPool.sharesPerToken
+        sharesPerToken: sharesPerToken
       })
     );
     globalPool.currentPeriod++;
     globalPool.sharesPerToken = sharesPerToken;
 
     emit IncreasedAssetPeriod(globalPool.currentPeriod, sharesPerToken);
+  }
+
+  /**
+   * @dev Sets the shares per token for the last period to 0. Only called by the Pool when the auction fails.
+   * @notice Can only be called by addresses with the DISTRIBUTOR_ROLE and when the contract is not paused.
+   */
+  function zeroLastSharesPerToken() external onlyRole(DISTRIBUTOR_ROLE) {
+    globalPool.previousPoolAmounts[globalPool.currentPeriod-1].sharesPerToken = 0;
+  }
+
+  /**
+   * @dev Sets the pool for the bond token. Only called by the pool factory, and only once during Pool creation.
+   * @param _pool The address of the pool
+   */
+  function setPool(address _pool) external {
+    require(msg.sender == address(poolFactory), CallerIsNotPoolFactory());
+    pool = Pool(_pool);
   }
 
   /**

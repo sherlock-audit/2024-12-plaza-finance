@@ -46,7 +46,7 @@ contract TestnetBalancerScript is Script {
     address oracleFeeds = address(new OracleFeeds());
 
     // Deploy Balancer Router
-    new BalancerRouter(balancerVault, balancerPoolToken);
+    new BalancerRouter(balancerVault);
 
     // Deploy Balancer Oracle Adapter
     address balancerOracleAdapter = Utils.deploy(address(new BalancerOracleAdapter()), abi.encodeCall(
