@@ -1,4 +1,15 @@
 diff a/plaza-evm/test/BalancerRouter.t.sol b/plaza-evm/test/BalancerRouter.t.sol	(rejected hunks)
+@@ -75,6 +75,10 @@ contract MockBalancerVault {
+       }
+     }
+   }
++
++  function getPool(bytes32) external view returns (address, uint8) {
++    return (address(balancerPoolToken), 0);
++  }
+ }
+ 
+ contract BalancerRouterTest is Test {
 @@ -160,41 +164,13 @@ contract BalancerRouterTest is Test {
        PreDeposit.initialize, 
        (params, address(poolFactory), block.timestamp, block.timestamp + 1 hours, 100000 ether, "Bond ETH", "bondETH", "Leveraged ETH", "levETH")
@@ -43,6 +54,15 @@ diff a/plaza-evm/test/BalancerRouter.t.sol b/plaza-evm/test/BalancerRouter.t.sol
      vm.stopPrank();
    }
  
+@@ -270,6 +246,8 @@ contract BalancerRouterTest is Test {
+     minAmountsOut[0] = 0.9 ether;
+     minAmountsOut[1] = 0.9 ether;
+ 
++    bytes memory userData = abi.encode(uint256(0), 0, 0);
++
+     // Exit Plaza and Balancer
+     router.exitPlazaAndBalancer(
+       BALANCER_POOL_ID,
 @@ -277,7 +255,7 @@ contract BalancerRouterTest is Test {
        assets,
        plazaTokens,
