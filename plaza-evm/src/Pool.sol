@@ -252,6 +252,8 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
       lToken.mint(recipient, amount);
     }
 
+    lastCreateBlock = block.number;
+
     emit TokensCreated(msg.sender, recipient, tokenType, depositAmount, amount);
     return amount;
   }
@@ -525,7 +527,7 @@ contract Pool is Initializable, PausableUpgradeable, ReentrancyGuardUpgradeable,
   /**
    * @dev Starts an auction for the current period.
    */
-  function startAuction() external whenNotPaused() {
+  function startAuction() external whenNotPaused() noCreateInThisBlock {
     // Check if distribution period has passed
     require(lastDistribution + distributionPeriod < block.timestamp, DistributionPeriodNotPassed());
 

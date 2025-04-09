@@ -1,0 +1,46 @@
+diff a/plaza-evm/test/data/TestCases.sol b/plaza-evm/test/data/TestCases.sol	(rejected hunks)
+@@ -742,7 +742,7 @@ contract TestCases {
+         DebtAssets: 950000,
+         LeverageAssets: 1700000,
+         expectedCreate: 640,
+-        expectedRedeem: 14049,
++        expectedRedeem: 14050,
+         expectedSwap: 0
+     }));
+ 
+@@ -790,7 +790,7 @@ contract TestCases {
+         DebtAssets: 1350000,
+         LeverageAssets: 1550000,
+         expectedCreate: 266,
+-        expectedRedeem: 12164,
++        expectedRedeem: 12165,
+         expectedSwap: 0
+     }));
+ 
+@@ -874,7 +874,7 @@ contract TestCases {
+         DebtAssets: 8000000000,
+         LeverageAssets: 3000000000,
+         expectedCreate: 1285,
+-        expectedRedeem: 56212,
++        expectedRedeem: 56213,
+         expectedSwap: 0
+     }));
+ 
+@@ -1031,7 +1031,7 @@ contract TestCases {
+         DebtAssets: 675000000,
+         LeverageAssets: 200000000,
+         expectedCreate: 57812,
+-        expectedRedeem: 246,
++        expectedRedeem: 236,
+         expectedSwap: 0
+     }));
+ 
+@@ -1151,7 +1151,7 @@ contract TestCases {
+         DebtAssets: 360000000,
+         LeverageAssets: 300000000,
+         expectedCreate: 31250,
+-        expectedRedeem: 208,
++        expectedRedeem: 200,
+         expectedSwap: 0
+     }));
+ 

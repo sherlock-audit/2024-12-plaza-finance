@@ -92,7 +92,8 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
   }
 
   /**
-   * @dev Initializes the contract with a name, symbol, minter, governance address, distributor, and initial shares per token.
+   * @dev Initializes the contract with a name, symbol, minter, governance address, distributor, and
+   * initial shares per token.
    * @param name The name of the token
    * @param symbol The symbol of the token
    * @param minter The address that will have minting privileges
@@ -100,14 +101,13 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * @param sharesPerToken The initial number of shares per token
    */
   function initialize(
-    string memory name, 
-    string memory symbol, 
-    address minter, 
+    string memory name,
+    string memory symbol,
+    address minter,
     address governance,
     address _poolFactory,
     uint256 sharesPerToken
-    ) initializer public {
-
+  ) public initializer {
     __ERC20_init(name, symbol);
     __ERC20Permit_init(name);
     __UUPSUpgradeable_init();
@@ -157,16 +157,13 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * @param from The address tokens are transferred from
    * @param to The address tokens are transferred to
    * @param amount The amount of tokens transferred
-   * @notice This function is called during token transfer and is paused when the contract is paused.
+   * @notice This function is called during token transfer and is paused when the contract is
+   * paused.
    */
-  function _update(address from, address to, uint256 amount) internal virtual override whenNotPaused() {
-    if (from != address(0)) {
-      updateIndexedUserAssets(from, balanceOf(from));
-    }
+  function _update(address from, address to, uint256 amount) internal virtual override whenNotPaused {
+    if (from != address(0)) updateIndexedUserAssets(from, balanceOf(from));
 
-    if (to != address(0)) {
-      updateIndexedUserAssets(to, balanceOf(to));
-    }
+    if (to != address(0)) updateIndexedUserAssets(to, balanceOf(to));
 
     super._update(from, to, amount);
   }
@@ -292,26 +289,21 @@ contract BondToken is Initializable, ERC20Upgradeable, AccessControlUpgradeable,
    * Requirements:
    * - the caller must have the `SECURITY_COUNCIL_ROLE`.
    */
-  function unpause() external onlySecurityCouncil() {
+  function unpause() external onlySecurityCouncil {
     _unpause();
   }
 
   modifier onlySecurityCouncil() {
-    if (!poolFactory.hasRole(poolFactory.SECURITY_COUNCIL_ROLE(), msg.sender)) {
-      revert CallerIsNotSecurityCouncil();
-    }
+    if (!poolFactory.hasRole(poolFactory.SECURITY_COUNCIL_ROLE(), msg.sender)) revert CallerIsNotSecurityCouncil();
     _;
   }
 
   /**
-   * @dev Function that should revert when `msg.sender` is not authorized to upgrade the contract. Called by
+   * @dev Function that should revert when `msg.sender` is not authorized to upgrade the contract.
+   * Called by
    * {upgradeTo} and {upgradeToAndCall}.
    * @param newImplementation Address of the new implementation contract
    * @notice Can only be called by addresses with the GOV_ROLE.
    */
-  function _authorizeUpgrade(address newImplementation)
-    internal
-    onlyRole(GOV_ROLE)
-    override
-  {}
+  function _authorizeUpgrade(address newImplementation) internal override onlyRole(GOV_ROLE) {}
 }

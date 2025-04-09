@@ -53,6 +53,7 @@ contract BalancerRouter is ReentrancyGuard {
     ) internal returns (uint256) {
         // Transfer assets from user to this contract
         for (uint256 i = 0; i < assets.length; i++) {
+            if (maxAmountsIn[i] == 0) continue;
             IERC20(address(assets[i])).safeTransferFrom(msg.sender, address(this), maxAmountsIn[i]);
             IERC20(address(assets[i])).safeIncreaseAllowance(address(balancerVault), maxAmountsIn[i]);
         }
