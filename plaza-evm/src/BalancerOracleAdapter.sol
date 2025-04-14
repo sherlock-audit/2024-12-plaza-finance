@@ -10,12 +10,11 @@ import {IBalancerV2WeightedPool} from "./lib/balancer/IBalancerV2WeightedPool.so
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IERC20} from "@balancer/contracts/interfaces/contracts/solidity-utils/openzeppelin/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract BalancerOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, AggregatorV3Interface, OracleReader {
+contract BalancerOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable, ReentrancyGuardUpgradeable, AggregatorV3Interface, OracleReader {
   using Decimals for uint256;
   using FixedPoint for uint256;
 
@@ -46,7 +45,6 @@ contract BalancerOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgrade
     __Ownable_init(_owner);
     __OracleReader_init(_oracleFeeds);
     __ReentrancyGuard_init();
-    __Pausable_init();
     poolAddress = _poolAddress;
     decimals = _decimals;
   }

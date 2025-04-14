@@ -12,10 +12,9 @@ import {FixedPoint96} from "./lib/concentrated-liquidity/FixedPoint96.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
-contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable, PausableUpgradeable, AggregatorV3Interface {
+contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable, AggregatorV3Interface {
   using Decimals for uint256;
   using ERC20Extensions for IERC20;
 
@@ -27,7 +26,7 @@ contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable
   address private liquidityToken;
 
   uint8 public decimals;
-
+  bool public isPoolInverted;
   error NoPoolFound();
   error NotImplemented();
 
@@ -53,13 +52,13 @@ contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable
     address _owner
   ) initializer external {
     __Ownable_init(_owner);
-    __Pausable_init();
     bondToken = _bondToken;
     liquidityToken = _liquidityToken;
+    decimals = IERC20(_liquidityToken).safeDecimals();
+
     dexFactory = _dexFactory;
     (dexPool,,) = getPool(bondToken, liquidityToken);
-
-    decimals = IERC20(_bondToken).safeDecimals();
+    isPoolInverted = ICLPool(dexPool).token1() == bondToken;
     twapInterval = _twapInterval;
   }
 
@@ -110,11 +109,17 @@ contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable
       int24((tickCumulatives[1] - tickCumulatives[0]) / int56(uint56(twapInterval)))
     );
 
-    return (uint80(0), int256(getPriceX96FromSqrtPriceX96(getSqrtTwapX96)), block.timestamp, block.timestamp, uint80(0));
+    return (uint80(0), int256(getAdjustedPriceFromSqrtPriceX96(getSqrtTwapX96)), block.timestamp, block.timestamp, uint80(0));
   }
 
-  function getPriceX96FromSqrtPriceX96(uint160 sqrtPriceX96) public pure returns(uint256) {
-    return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, FixedPoint96.Q96);
+  function getAdjustedPriceFromSqrtPriceX96(uint160 sqrtPriceX96) public view returns (uint256) {
+    // Compute the price in Q96 format
+    uint256 priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, FixedPoint96.Q96);
+
+    // Convert from Q96 to bondToken decimals
+    return isPoolInverted ?
+      FullMath.mulDiv(10 ** IERC20(bondToken).safeDecimals(), FixedPoint96.Q96, priceX96):
+      FullMath.mulDiv(priceX96, 10 ** IERC20(bondToken).safeDecimals(), FixedPoint96.Q96);
   }
 
   function getPool(address tokenA, address tokenB) private view returns (address, uint24, int24) {
@@ -135,6 +140,14 @@ contract BondOracleAdapter is Initializable, OwnableUpgradeable, UUPSUpgradeable
     }
 
     revert NoPoolFound();
+  }
+
+  /**
+   * @dev Sets the dex pool. Should only be used if a different pool to the one chosen pool on deployment has deeper liquidity.
+   * @param _dexPool The address of the dex pool.
+   */
+  function setDexPool(address _dexPool) external onlyOwner {
+    dexPool = _dexPool;
   }
 
   /**

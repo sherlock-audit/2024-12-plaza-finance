@@ -89,6 +89,8 @@ contract PoolTest is Test, TestCases {
     vm.startPrank(governance);
     poolFactory.grantRole(poolFactory.POOL_ROLE(), governance);
     poolFactory.grantRole(poolFactory.SECURITY_COUNCIL_ROLE(), securityCouncil);
+    vm.warp(block.timestamp + 11);
+    vm.roll(block.number + 11);
     vm.stopPrank();
   }
 
@@ -1118,39 +1120,10 @@ contract PoolTest is Test, TestCases {
 
     // Claim fees
     vm.startPrank(params.feeBeneficiary);
-    vm.expectRevert(Pool.NoFeesToClaim.selector);
+    vm.expectEmit(true, true, true, true);
+    emit Pool.NoFeesToClaim();
     pool.claimFees();
     vm.stopPrank();
-
-    // Reset reserve state
-    rToken.burn(governance, rToken.balanceOf(governance));
-    rToken.burn(address(pool), rToken.balanceOf(address(pool)));
-  }
-
-  function testClaimNotBeneficiary() public {
-    vm.startPrank(governance);
-
-    // Create a pool with 2% fee
-    params.fee = 20000; // 2% fee (1000000 precision)
-    params.feeBeneficiary = address(0x942);
-
-    // Mint and approve reserve tokens
-    Token rToken = Token(params.reserveToken);
-    rToken.mint(governance, 1000 ether);
-    rToken.approve(address(poolFactory), 1000 ether);
-
-    Pool pool = Pool(poolFactory.createPool(params, 1000 ether, 500 ether, 250 ether, "", "", "", "", false));
-
-    vm.stopPrank();
-    vm.startPrank(user);
-    
-    // Claim fees
-    vm.expectRevert(Pool.NotBeneficiary.selector);
-    pool.claimFees();
-
-    // Reset reserve state
-    rToken.burn(governance, rToken.balanceOf(governance));
-    rToken.burn(address(pool), rToken.balanceOf(address(pool)));
   }
 
   function testCreateRedeemWithFees() public {
@@ -1245,5 +1218,23 @@ contract PoolTest is Test, TestCases {
 
     uint256 price2 = _pool.getOraclePrice(params.reserveToken, _pool.USD());
     assertEq(price2, 27887401483629120000);
-  }  
+  }
+
+  function testCannotCreateSoonAfterAuctionStart() public {
+    vm.startPrank(governance);
+    Token rToken = Token(params.reserveToken);
+    rToken.mint(governance, 1 ether);
+    rToken.approve(address(poolFactory), 1 ether);
+    Pool _pool = Pool(poolFactory.createPool(params, 1 ether, 1 ether, 1 ether, "", "", "", "", false));
+    _pool.setAuctionPeriod(1 days);
+    vm.stopPrank();
+
+    vm.warp(block.timestamp + 0.5 days);
+    _pool.startAuction();
+
+    vm.startPrank(user);
+    vm.expectRevert(Pool.AuctionRecentlyStarted.selector);
+    _pool.create(Pool.TokenType.BOND, 1000, 0);
+    vm.stopPrank();
+  }
 }

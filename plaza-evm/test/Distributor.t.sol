@@ -380,6 +380,24 @@ contract DistributorTest is Test {
     _pool.bondToken().increaseIndexedAssetPeriod(1);
     vm.stopPrank();
 
+    // Mock auction state
+    vm.startPrank(address(poolFactory));
+    address mockPool = address(new Pool());
+    address mockAuction = address(new Auction());
+    _pool.bondToken().setPool(mockPool);
+    vm.mockCall(
+      address(_pool),
+      abi.encodeWithSignature("auctions(uint256)", 0),
+      abi.encode(mockAuction)
+    );
+
+    vm.mockCall(
+      mockAuction,
+      abi.encodeWithSignature("state()"),
+      abi.encode(Auction.State.SUCCEEDED)
+    );
+    vm.stopPrank();
+
     vm.startPrank(user);
     vm.expectRevert(Distributor.NotEnoughSharesToDistribute.selector);
     distributor.claim();
@@ -402,6 +420,24 @@ contract DistributorTest is Test {
     //this would never happen in production
     vm.startPrank(governance);
     _pool.bondToken().increaseIndexedAssetPeriod(1);
+    vm.stopPrank();
+
+    // Mock auction state
+    vm.startPrank(address(poolFactory));
+    address mockPool = address(new Pool());
+    address mockAuction = address(new Auction());
+    _pool.bondToken().setPool(mockPool);
+    vm.mockCall(
+      address(_pool),
+      abi.encodeWithSignature("auctions(uint256)", 0),
+      abi.encode(mockAuction)
+    );
+
+    vm.mockCall(
+      mockAuction,
+      abi.encodeWithSignature("state()"),
+      abi.encode(Auction.State.SUCCEEDED)
+    );
     vm.stopPrank();
 
     vm.startPrank(user);

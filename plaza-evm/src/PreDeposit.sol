@@ -201,7 +201,7 @@ contract PreDeposit is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrade
    * @param _bondAmount Amount of bond tokens
    * @param _leverageAmount Amount of leverage tokens
    */
-  function setBondAndLeverageAmount(uint256 _bondAmount, uint256 _leverageAmount) external onlyOwner checkDepositNotEnded {
+  function setBondAndLeverageAmount(uint256 _bondAmount, uint256 _leverageAmount) external onlyOwner checkDepositEnded {
     if (poolCreated) revert PoolAlreadyCreated();
 
     bondAmount = _bondAmount;
