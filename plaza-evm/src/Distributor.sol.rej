@@ -1,0 +1,80 @@
+diff a/plaza-evm/src/Distributor.sol b/plaza-evm/src/Distributor.sol	(rejected hunks)
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: UNLICENSED
+ pragma solidity ^0.8.26;
+ 
++import {Auction} from "./Auction.sol";
+ import {Pool} from "./Pool.sol";
+ import {BondToken} from "./BondToken.sol";
+ import {Decimals} from "./lib/Decimals.sol";
+@@ -45,11 +46,11 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
+   error CallerIsNotPool();
+   /// @dev error thrown when the caller does not have the required role
+   error AccessDenied();
++  /// @dev error thrown when user has no shares to claim
++  error NothingToClaim();
+ 
+   /// @dev Event emitted when a user claims their shares
+   event ClaimedShares(address user, uint256 period, uint256 shares);
+-  /// @dev Event emitted when a new pool is registered
+-  event PoolRegistered(address pool, address couponToken);
+ 
+   /// @custom:oz-upgrades-unsafe-allow constructor
+   constructor() {
+@@ -75,7 +76,7 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
+    * Calculates the number of shares based on the user's bond token balance and the shares per token.
+    * Transfers the calculated shares to the user's address.
+    */
+-  function claim() external whenNotPaused nonReentrant {
++  function claim() external nonReentrant whenNotPaused {
+     BondToken bondToken = Pool(pool).bondToken();
+     address couponToken = Pool(pool).couponToken();
+ 
+@@ -85,27 +86,33 @@ contract Distributor is Initializable, PausableUpgradeable, ReentrancyGuardUpgra
+ 
+     (uint256 currentPeriod,) = bondToken.globalPool();
+     uint256 balance = bondToken.balanceOf(msg.sender);
+-    uint256 shares = bondToken.getIndexedUserAmount(msg.sender, balance, currentPeriod)
+-                              .normalizeAmount(bondToken.decimals(), IERC20(couponToken).safeDecimals());
++    (uint256 shares, uint256 lastIndexedPeriodBalance) =
++      bondToken.getIndexedUserAmount(msg.sender, balance, currentPeriod);
+ 
+-    if (IERC20(couponToken).balanceOf(address(this)) < shares) {
+-      revert NotEnoughSharesBalance();
++    shares = shares.normalizeAmount(bondToken.decimals(), IERC20(couponToken).safeDecimals());
++
++    bool isLastAuctionFinalized = !(Auction(pool.auctions(currentPeriod - 1)).state() == Auction.State.BIDDING);
++
++    if (isLastAuctionFinalized) {
++      BondToken.PoolAmount[] memory poolAmount = bondToken.getPreviousPoolAmounts();
++      shares += (lastIndexedPeriodBalance * poolAmount[currentPeriod - 1].sharesPerToken).normalizeAmount(
++        IERC20(bondToken).safeDecimals() + bondToken.SHARES_DECIMALS(), IERC20(couponToken).safeDecimals()
++      );
+     }
+-    
++    if (shares == 0) revert NothingToClaim();
++
++    if (IERC20(couponToken).balanceOf(address(this)) < shares) revert NotEnoughSharesBalance();
++
+     // check if pool has enough *allocated* shares to distribute
+-    if (couponAmountToDistribute < shares) {
+-      revert NotEnoughSharesToDistribute();
+-    }
++    if (couponAmountToDistribute < shares) revert NotEnoughSharesToDistribute();
+ 
+     // check if the distributor has enough shares tokens as the amount to distribute
+-    if (IERC20(couponToken).balanceOf(address(this)) < couponAmountToDistribute) {
+-      revert NotEnoughSharesToDistribute();
+-    }
++    if (IERC20(couponToken).balanceOf(address(this)) < couponAmountToDistribute) revert NotEnoughSharesToDistribute();
+ 
+-    couponAmountToDistribute -= shares;    
+-    bondToken.resetIndexedUserAssets(msg.sender);
++    couponAmountToDistribute -= shares;
++    bondToken.resetIndexedUserAssets(msg.sender, isLastAuctionFinalized);
+     IERC20(couponToken).safeTransfer(msg.sender, shares);
+-    
++
+     emit ClaimedShares(msg.sender, currentPeriod, shares);
+   }
+ 
